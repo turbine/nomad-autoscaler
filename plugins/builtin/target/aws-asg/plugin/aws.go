@@ -111,6 +111,15 @@ func (t *TargetPlugin) scaleOut(ctx context.Context, asg *types.AutoScalingGroup
 	return nil
 }
 
+func isScaleProtected(instance types.Instance) bool {
+	// https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-instance-protection.html
+	// EC2 instances can be marked as scale protected. The autoscaling group will not terminate a
+	// scale protected instance when scaling in. We are eventually terminating the chosen instances
+	// with TerminateInstanceInAutoScalingGroup which ignores scale protection. Make a best effort to
+	// honor this setting. (If scale protection is set after we get the instance state we won't know)
+	return instance.ProtectedFromScaleIn != nil && *instance.ProtectedFromScaleIn
+}
+
 func (t *TargetPlugin) scaleIn(ctx context.Context, asg *types.AutoScalingGroup, num int64, config map[string]string) error {
 	// Create a logger for this action to pre-populate useful information we
 	// would like on all log lines.
@@ -119,11 +128,15 @@ func (t *TargetPlugin) scaleIn(ctx context.Context, asg *types.AutoScalingGroup,
 	// Find instance IDs in the target ASG and perform pre-scale tasks.
 	remoteIDs := []string{}
 	for _, inst := range asg.Instances {
-		if *inst.HealthStatus == "Healthy" && inst.LifecycleState == types.LifecycleStateInService {
+		if *inst.HealthStatus == "Healthy" && inst.LifecycleState == types.LifecycleStateInService && !isScaleProtected(inst) {
 			log.Debug("found healthy instance", "instance_id", *inst.InstanceId)
 			remoteIDs = append(remoteIDs, *inst.InstanceId)
 		} else {
-			log.Debug("skipping instance", "instance_id", *inst.InstanceId, "health_status", *inst.HealthStatus, "lifecycle_state", inst.LifecycleState)
+			log.Debug("skipping instance",
+				"instance_id", *inst.InstanceId,
+				"health_status", *inst.HealthStatus,
+				"lifecycle_state", inst.LifecycleState,
+				"scale_protected", isScaleProtected(inst))
 		}
 	}
 
