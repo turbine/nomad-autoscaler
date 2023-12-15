@@ -496,7 +496,9 @@ func (h *checkHandler) runAPMQuery(apmImpl apm.APM) (sdk.TimestampedMetrics, err
 	defer metrics.MeasureSinceWithLabels([]string{"plugin", "apm", "query", "invoke_ms"}, time.Now(), labels)
 
 	// Calculate query range from the query window defined in the check.
-	to := time.Now()
+	// WB Games: For us, the current minute in datadog has inaccurate metric values. This can be seen in both graphs and
+	// queries. To avoid this causing incorrect scaling decisions tweak the time range used
+	to := time.Now().Add(-1 * time.Minute)
 	from := to.Add(-h.checkEval.Check.QueryWindow)
 	r := sdk.TimeRange{From: from, To: to}
 
